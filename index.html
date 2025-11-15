@@ -39,22 +39,45 @@
             <div id="display-unit" class="text-lg sm:text-2xl text-gray-400">kWh</div>
         </div>
 
-        <!-- Timeframe Toggles -->
-        <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3">
-            <button id="btn-live" class="view-btn btn-active text-xs sm:text-sm px-3 py-2 rounded-lg font-medium transition-colors duration-200">Live Total</button>
-            <button id="btn-day" class="view-btn bg-gray-700 hover:bg-gray-600 text-xs sm:text-sm px-3 py-2 rounded-lg font-medium transition-colors duration-200">Per Day</button>
-            <button id="btn-week" class="view-btn bg-gray-700 hover:bg-gray-600 text-xs sm:text-sm px-3 py-2 rounded-lg font-medium transition-colors duration-200">Per Week</button>
-            <button id="btn-month" class="view-btn bg-gray-700 hover:bg-gray-600 text-xs sm:text-sm px-3 py-2 rounded-lg font-medium transition-colors duration-200">Per Month</button>
-            <button id="btn-year" class="view-btn bg-gray-700 hover:bg-gray-600 text-xs sm:text-sm px-3 py-2 rounded-lg font-medium transition-colors duration-200">Per Year</button>
-            <button id="btn-total" class="view-btn bg-gray-700 hover:bg-gray-600 text-xs sm:text-sm px-3 py-2 rounded-lg font-medium transition-colors duration-200">Total 2024-2030</button>
+        <!-- How is this Calculated Button -->
+        <div class="text-center mb-6">
+            <button id="btn-how" class="text-indigo-300 hover:text-indigo-200 text-sm font-medium">
+                How is this calculated?
+            </button>
         </div>
+
 
         <!-- Footer -->
         <p class="text-xs text-gray-500 text-center mt-6">
-            Data based on 2024 baselines and 2030 projections from the International Energy Agency (IEA) 'Energy and AI' report (2024/2025). This is a simplified model for illustrative purposes.
+            Data based on 2024 baselines and 2030 projections from the 
+            <a href="https://www.iea.org/reports/energy-and-ai" target="_blank" rel="noopener noreferrer" class="text-indigo-400 hover:text-indigo-300 underline">International Energy Agency (IEA) 'Energy and AI' report</a>
+             (2024/2025). This is a simplified model for illustrative purposes.
         </p>
 
     </div>
+
+    <!-- Explanation Modal -->
+    <div id="modal" class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-lg p-6 relative">
+            <button id="btn-close-modal" class="absolute top-4 right-4 text-gray-500 hover:text-gray-300">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            <h3 class="text-xl font-bold text-indigo-300 mb-4">How This is Calculated</h3>
+            <div class="text-gray-300 space-y-3 text-sm">
+                <p>This counter models accelerating energy consumption using an exponential growth formula based on professional data.</p>
+                <ol class="list-decimal list-inside space-y-2 pl-2">
+                    <li><strong>Baseline Data:</strong> The 2024 annual consumption estimates (e.g., Global: 415 TWh, US: 183 TWh) from the International Energy Agency (IEA).</li>
+                    <li><strong>Growth Rate:</strong> <span class="font-mono font-medium text-indigo-200">Compound Annual Growth Rate (CAGR)</span> calculated by comparing the 2024 baseline to the IEA's 2030 projection (e.g., Global: 945 TWh).</li>
+                    <li><strong>Live Counter:</strong> The "live" number is the cumulative energy consumed since Jan 1, 2024. It's calculated by integrating the exponential growth function:
+                        <br>
+                        <span class="block text-center font-mono bg-gray-900 p-2 rounded-md my-2 text-xs sm:text-sm">Total = (BaseTWh * ((1 + Rate)<sup>Years</sup> - 1)) / ln(1 + Rate)</span>
+                    </li>
+                </ol>
+                <p>This formula finds the total area under the exponential growth curve from the start date to the current second, giving a real-time estimate of total consumption.</p>
+            </div>
+        </div>
+    </div>
+
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -72,7 +95,7 @@
 
             // --- State Variables ---
             let currentRegion = 'global';
-            let currentView = 'live';
+            // currentView is removed, defaults to 'live'
             let liveIntervalId = null;
 
             // --- DOM Elements ---
@@ -80,7 +103,10 @@
             const displayValue = document.getElementById('display-value');
             const displayUnit = document.getElementById('display-unit');
             const regionButtons = document.querySelectorAll('.region-btn');
-            const viewButtons = document.querySelectorAll('.view-btn');
+            // viewButtons removed
+            const modal = document.getElementById('modal');
+            const btnHow = document.getElementById('btn-how');
+            const btnCloseModal = document.getElementById('btn-close-modal');
 
             // --- Helper Functions ---
             
@@ -90,10 +116,8 @@
              * @returns {string} - The formatted number.
              */
             function formatNumber(num) {
-                // For 'live' view, we show whole numbers. For others, 2 decimal places.
-                const options = (currentView === 'live') 
-                    ? { maximumFractionDigits: 0 } 
-                    : { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+                // For 'live' view, we show whole numbers.
+                const options = { maximumFractionDigits: 0 };
                 return new Intl.NumberFormat('en-US', options).format(num);
             }
 
@@ -140,69 +164,23 @@
                 }
 
                 const data = DATA_SOURCES[currentRegion];
-                const now = new Date();
-                const yearsElapsed = (now.getTime() - START_DATE.getTime()) / (1000 * SECONDS_PER_YEAR);
                 
-                let title = '';
-                let value = 0;
-                let unit = '';
+                let title = `Live Total Since Jan 1, 2024`;
+                let unit = 'kWh';
 
-                const currentAnnualRateTWh = getCurrentAnnualRate(data.baseTWh, data.growthRate, yearsElapsed);
-
-                switch (currentView) {
-                    case 'live':
-                        title = `Live Total Since Jan 1, 2024`;
-                        unit = 'kWh';
-                        
-                        // Function to update the live counter
-                        const updateLiveCounter = () => {
-                            const currentYears = (new Date().getTime() - START_DATE.getTime()) / (1000 * SECONDS_PER_YEAR);
-                            const cumulativeTWh = getCumulativeConsumption(data.baseTWh, data.growthRate, currentYears);
-                            const cumulativeKWh = cumulativeTWh * TWH_TO_KWH;
-                            displayValue.textContent = formatNumber(cumulativeKWh);
-                        };
-                        
-                        updateLiveCounter(); // Run once immediately
-                        liveIntervalId = setInterval(updateLiveCounter, 100); // Update every 100ms
-                        break;
-                    
-                    case 'day':
-                        title = 'Current Daily Rate';
-                        unit = 'TWh';
-                        value = currentAnnualRateTWh / 365.25;
-                        break;
-
-                    case 'week':
-                        title = 'Current Weekly Rate';
-                        unit = 'TWh';
-                        value = currentAnnualRateTWh / (365.25 / 7);
-                        break;
-
-                    case 'month':
-                        title = 'Current Monthly Rate';
-                        unit = 'TWh';
-                        value = currentAnnualRateTWh / 12;
-                        break;
-                    
-                    case 'year':
-                        title = 'Current Annual Rate';
-                        unit = 'TWh';
-                        value = currentAnnualRateTWh;
-                        break;
-
-                    case 'total':
-                        title = 'Projected Total (2024-2030)';
-                        unit = 'TWh';
-                        const totalYears = (END_DATE.getTime() - START_DATE.getTime()) / (1000 * SECONDS_PER_YEAR);
-                        value = getCumulativeConsumption(data.baseTWh, data.growthRate, totalYears);
-                        break;
-                }
+                // Function to update the live counter
+                const updateLiveCounter = () => {
+                    const currentYears = (new Date().getTime() - START_DATE.getTime()) / (1000 * SECONDS_PER_YEAR);
+                    const cumulativeTWh = getCumulativeConsumption(data.baseTWh, data.growthRate, currentYears);
+                    const cumulativeKWh = cumulativeTWh * TWH_TO_KWH;
+                    displayValue.textContent = formatNumber(cumulativeKWh);
+                };
+                
+                updateLiveCounter(); // Run once immediately
+                liveIntervalId = setInterval(updateLiveCounter, 100); // Update every 100ms
 
                 displayTitle.textContent = title;
                 displayUnit.textContent = unit;
-                if (currentView !== 'live') {
-                    displayValue.textContent = formatNumber(value);
-                }
             }
 
             /**
@@ -225,23 +203,26 @@
             /**
              * Handles view/timeframe button clicks.
              */
-            function selectView(e) {
-                currentView = e.target.id.split('-')[1]; // e.g., "btn-live" -> "live"
-
-                viewButtons.forEach(btn => {
-                    btn.classList.remove('btn-active');
-                    btn.classList.add('bg-gray-700', 'hover:bg-gray-600');
-                });
-
-                e.target.classList.add('btn-active');
-                e.target.classList.remove('bg-gray-700', 'hover:bg-gray-600');
-                
-                updateDisplay();
-            }
+            // selectView function removed
 
             // --- Add Event Listeners ---
             regionButtons.forEach(btn => btn.addEventListener('click', selectRegion));
-            viewButtons.forEach(btn => btn.addEventListener('click', selectView));
+            // viewButtons listener removed
+            
+            btnHow.addEventListener('click', () => {
+                modal.classList.remove('hidden');
+            });
+
+            btnCloseModal.addEventListener('click', () => {
+                modal.classList.add('hidden');
+            });
+            
+            // Close modal if clicking outside the content
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.classList.add('hidden');
+                }
+            });
 
             // --- Initial Load ---
             updateDisplay();
